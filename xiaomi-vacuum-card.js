@@ -2,7 +2,7 @@
     console.info(
         '%c XIAOMI-VACUUM-CARD %c 4.2.0 ',
         'color: cyan; background: black; font-weight: bold;',
-        'color: darkblue; background: white; font-weight: bold;',
+        'color: darkblue; background: white; font-weight: bold;'
     );
 
     const state = {
@@ -81,7 +81,12 @@
     const compute = {
         trueFalse: v => (v === true ? 'Yes' : (v === false ? 'No' : '-')),
         divide100: v => Math.round(Number(v) / 100),
-    }
+        precision1: v => Number(v).toFixed(1),
+        yesno: v => (
+                ['yes', 'on', 'true', '1'].indexOf(String(v).toLowerCase() ) >= 0 ? 'yes'
+                : (['no', 'off', 'false', '0'].indexOf(String(v).toLowerCase() ) >= 0 ? 'no' : '-')
+            ),
+    };
 
     const vendors = {
         xiaomi: {},
@@ -145,24 +150,55 @@
         },
         deebot: {
             buttons: {
-                start: {service: 'vacuum.turn_on'},
-                pause: {service: 'vacuum.stop'},
-                stop: {service: 'vacuum.turn_off'},
+                start: {service: 'vacuum.start'},
+                pause: {service: 'vacuum.pause'},
+                stop: {service: 'vacuum.stop'},
+                emtpy_bin: {
+                    icon: 'mdi:recycle',
+                    label: 'Empty dust bin',
+                    service: 'vacuum.send_command',
+                    service_data: {
+                        command: 'setAutoEmpty',
+                        params: {
+                            act: 'start',
+                        }
+                    }
+                }
+            },
+            state: {
+                status: {
+                    key: 'state',
+                }
             },
             attributes: {
                 main_brush: {
-                    key: 'component_main_brush',
-                    compute: compute.divide100,
+                    entity: 'sensor.%VACUUM_FRIENDLY_NAME%_brush',
+                    label: 'Main brush: ',
+                    key: 'state',
+                    compute: compute.precision1,
+                    unit: ' %',
                 },
                 side_brush: {
-                    key: 'component_side_brush',
-                    compute: compute.divide100,
+                    entity: 'sensor.%VACUUM_FRIENDLY_NAME%_sidebrush',
+                    label: 'Side brush: ',
+                    key: 'state',
+                    compute: compute.precision1,
+                    unit: ' %',
                 },
                 filter: {
-                    key: 'component_filter',
-                    compute: compute.divide100,
+                    entity: 'sensor.%VACUUM_FRIENDLY_NAME%_heap',
+                    label: 'Air filter: ',
+                    key: 'state',
+                    compute: compute.precision1,
+                    unit: ' %',
                 },
-                sensor: false,
+                sensor: {
+                    entity: 'binary_sensor.%VACUUM_FRIENDLY_NAME%_mop_attached',
+                    key: 'state',
+                    unit: '',
+                    label: 'Mop attached: ',
+                    compute: compute.yesno,
+                },
             },
         },
         deebot_slim: {
@@ -206,7 +242,7 @@
                 _hass: {},
                 config: {},
                 stateObj: {},
-            }
+            };
         }
 
         static get styles() {
@@ -278,17 +314,20 @@
 
         renderAttribute(data) {
             const computeFunc = data.compute || (v => v);
-            const isValidAttribute = data && data.key in this.stateObj.attributes;
-            const isValidEntityData = data && data.key in this.stateObj;
+            const stateEntity = data && data.entity ? data.entity.replace('%VACUUM_FRIENDLY_NAME%', this.stateObj.attributes.friendly_name.toLowerCase()) : null;
+            const stateObj = null !== stateEntity ? (stateEntity in this._hass.states ? this._hass.states[stateEntity] : null): this.stateObj;
+            console.log(stateEntity, stateObj);
+            const isValidAttribute = stateObj && data && data.key in stateObj.attributes;
+            const isValidEntityData = stateObj && data && data.key in stateObj;
 
             const value = isValidAttribute
-                ? computeFunc(this.stateObj.attributes[data.key]) + (data.unit || '')
+                ? computeFunc(stateObj.attributes[data.key]) + (data.unit || '')
                 : isValidEntityData
-                    ? computeFunc(this.stateObj[data.key]) + (data.unit || '')
+                    ? computeFunc(stateObj[data.key]) + (data.unit || '')
                     : this._hass.localize('state.default.unavailable');
             const attribute = html`<div>${data.icon && this.renderIcon(data)}${(data.label || '') + value}</div>`;
 
-            const hasDropdown = `${data.key}_list` in this.stateObj.attributes;
+            const hasDropdown = `${data.key}_list` in stateObj.attributes;
 
             return (hasDropdown && (isValidAttribute || isValidEntityData))
                 ? this.renderDropdown(attribute, data.key)
@@ -339,7 +378,7 @@
         setConfig(config) {
             if (!config.entity) throw new Error('Please define an entity.');
             if (config.entity.split('.')[0] !== 'vacuum') throw new Error('Please define a vacuum entity.');
-            if (config.vendor && !config.vendor in vendors) throw new Error('Please define a valid vendor.');
+            if (config.vendor && !(config.vendor in vendors)) throw new Error('Please define a valid vendor.');
 
             const vendor = vendors[config.vendor] || vendors.xiaomi;
 
